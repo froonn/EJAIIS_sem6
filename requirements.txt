@@ -1,0 +1,3 @@
+nltk
+pymupdf
+PyQt6
