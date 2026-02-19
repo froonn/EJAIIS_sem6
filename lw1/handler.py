@@ -52,7 +52,6 @@ if __name__ == "__main__":
 
     dict1, dict2 = process_text(full_text)
 
-    # Вывод результатов
     print("--- Словарь 1 (Лексемы и частота) ---")
     print(len(dict1))
     print(dict1)

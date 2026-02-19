@@ -1,7 +1,7 @@
 import time
 import json
 from PyQt6.QtWidgets import QFileDialog, QApplication
-# Импорт функций модели
+
 from handler import extract_text_from_pdf, process_text
 
 
@@ -19,14 +19,11 @@ class TextProcessorController:
     def handle_open_pdf(self):
         file_path, _ = QFileDialog.getOpenFileName(None, "Выберите PDF", "", "PDF Files (*.pdf)")
         if file_path:
-            # 1. Сначала уведомляем UI о начале обработки
             self.view.set_processing_state(True)
-            # 2. Форсируем закрытие диалогового окна и отрисовку красного текста
             QApplication.processEvents()
 
             start_time = time.time()
 
-            # Логика обработки
             text = extract_text_from_pdf(file_path)
             lexemes, connections = process_text(text)
 
@@ -36,7 +33,6 @@ class TextProcessorController:
             self.data = {'lexemes': lexemes, 'connections': connections}
             self.comments = {}
 
-            # 3. Возвращаем обычный цвет и выводим статистику
             self.view.set_processing_state(False)
             self.view.stats_label.setText(f"Время обработки: {duration}с | Слов: {word_count}")
             self.view.update_table(self.data)
@@ -46,13 +42,11 @@ class TextProcessorController:
             self.view.update_table(self.data, self.comments)
             return
 
-        # Фильтруем данные (поиск по лексеме или словоформе)
         filtered_lexemes = {}
         filtered_conn = {}
 
         query = query.lower()
         for lexeme, count in self.data['lexemes'].items():
-            # Если запрос в лексеме или в любой из её словоформ
             wf_match = any(query in wf.lower() for wf in self.data['connections'].get(lexeme, {}))
             if query in lexeme.lower() or wf_match:
                 filtered_lexemes[lexeme] = count
@@ -61,7 +55,6 @@ class TextProcessorController:
         self.view.update_table({'lexemes': filtered_lexemes, 'connections': filtered_conn}, self.comments)
 
     def save_to_file(self):
-        # Сбор комментариев (с учетом того, что лексема может дублироваться в строках)
         for row in range(self.view.table.rowCount()):
             lexeme_item = self.view.table.item(row, 2)
             comment_item = self.view.table.item(row, 4)
