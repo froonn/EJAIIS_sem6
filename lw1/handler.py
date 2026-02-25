@@ -9,6 +9,7 @@ from nltk.tokenize import word_tokenize
 from collections import Counter, defaultdict
 
 # Ensure necessary NLTK resources are downloaded for text processing
+"""
 try:
     nltk.data.find('tokenizers/punkt')
     nltk.data.find('corpora/wordnet')
@@ -19,6 +20,7 @@ except LookupError:
     nltk.download('wordnet')
     nltk.download('averaged_perceptron_tagger')
     nltk.download('omw-1.4')
+"""
 
 
 def extract_text_from_pdf(pdf_path: str) -> str:
@@ -41,6 +43,7 @@ def get_wordnet_pos(word):
                 "V": wordnet.VERB,
                 "R": wordnet.ADV}
     return tag_dict.get(tag, wordnet.NOUN)
+
 
 def process_text(text: str) -> tuple[dict[str, int], dict[str, Counter[Any]]]:
     """
@@ -65,7 +68,6 @@ def process_text(text: str) -> tuple[dict[str, int], dict[str, Counter[Any]]]:
         lexeme_to_forms[lemma][word] += 1
 
     return dict(lexeme_counts), dict(lexeme_to_forms)
-
 
 
 if __name__ == "__main__":

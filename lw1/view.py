@@ -22,8 +22,8 @@ class AddEntryDialog(QDialog):
         self.lexeme_input = QLineEdit()
         self.wordform_input = QLineEdit()
 
-        layout.addRow("Lexeme:", self.lexeme_input)
         layout.addRow("Wordform:", self.wordform_input)
+        layout.addRow("Lexeme:", self.lexeme_input)
 
         buttons = QHBoxLayout()
         self.btn_ok = QPushButton("Add")
@@ -44,11 +44,11 @@ class AddEntryDialog(QDialog):
 
 
 class FilterDialog(QDialog):
-    """Window for advanced data filtering settings."""
+    """Window for data filtering settings."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Advanced Filters")
+        self.setWindowTitle("Filters")
         self.setFixedWidth(450)
         self._init_ui()
 
