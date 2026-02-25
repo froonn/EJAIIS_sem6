@@ -1,4 +1,5 @@
-import prepare
+# main.py
+
 from PyQt6.QtWidgets import QApplication
 from view import MainWindow
 from controller import TextProcessorController
