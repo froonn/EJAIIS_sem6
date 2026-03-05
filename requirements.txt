@@ -1,3 +1,9 @@
 nltk
 pymupdf
 PyQt6
+pymorphy2-dicts-ru
+setuptools
+pymorphy2
+python-docx
+PyPDF2
+striprtf

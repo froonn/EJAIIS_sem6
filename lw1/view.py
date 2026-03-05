@@ -173,7 +173,7 @@ class MainWindow(QMainWindow):
     def _show_help(self):
         """Display step-by-step user guide."""
         guide_text = (
-            "<b>User Guide: How to use Text Processor Pro</b><br><br>"
+            "<b>User Guide: How to use Text Processor 5000 Pro Max Ultra Super</b><br><br>"
             "<b>1. Analyze a Document:</b><br>"
             "Click <b>'Open PDF'</b> to select a file. The system will extract text, "
             "identify lemmas (dictionary forms), and count frequencies automatically.<br><br>"
