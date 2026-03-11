@@ -1,6 +1,7 @@
 # --- MODEL ---
 
 import sqlite3
+import os
 import re
 
 from collections import Counter
@@ -19,6 +20,7 @@ try:
 except ImportError:
     MORPH = None
 
+
 class CorpusModel:
     def __init__(self, db_path="corpus.db"):
         self.db_path = db_path
@@ -28,23 +30,114 @@ class CorpusModel:
         """Инициализация базы данных SQLite"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
+            cursor.execute('PRAGMA foreign_keys = ON')
+
+            # Справочник частей речи
+            cursor.execute('''
+                           CREATE TABLE IF NOT EXISTS pos_types
+                           (
+                               id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                               code TEXT NOT NULL UNIQUE,
+                               name TEXT
+                           )
+                           ''')
+
+            # Наполнение справочника pymorphy2 POS-тегами
+            pos_data = [
+                ('NOUN', 'имя существительное'),
+                ('ADJF', 'имя прилагательное(полное)'),
+                ('ADJS', 'имя прилагательное(краткое)'),
+                ('COMP', 'компаратив'),
+                ('VERB', 'глагол(личная форма)'),
+                ('INFN', 'глагол(инфинитив)'),
+                ('PRTF', 'причастие(полное)'),
+                ('PRTS', 'причастие(краткое)'),
+                ('GRND', 'деепричастие'),
+                ('NUMR', 'числительное'),
+                ('ADVB', 'наречие'),
+                ('NPRO', 'местоимение-существительное'),
+                ('PRED', 'предикатив'),
+                ('PREP', 'предлог'),
+                ('CONJ', 'союз'),
+                ('PRCL', 'частица'),
+                ('INTJ', 'междометие'),
+                ('UNKN', 'неизвестно'),
+            ]
+            cursor.executemany(
+                'INSERT OR IGNORE INTO pos_types (code, name) VALUES (?, ?)',
+                pos_data
+            )
+
+            # Источники текстов
+            cursor.execute('''
+                           CREATE TABLE IF NOT EXISTS sources
+                           (
+                               id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                               file_path TEXT,
+                               file_name TEXT NOT NULL
+                           )
+                           ''')
+
+            # Предложения
+            cursor.execute('''
+                           CREATE TABLE IF NOT EXISTS sentences
+                           (
+                               id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                               source_id INTEGER NOT NULL,
+                               text      TEXT    NOT NULL,
+
+                               FOREIGN KEY (source_id) REFERENCES sources (id) ON DELETE CASCADE
+                           )
+                           ''')
+
+            # Лексемы (уникальные леммы)
+            cursor.execute('''
+                           CREATE TABLE IF NOT EXISTS lexemes
+                           (
+                               id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                               lemma TEXT NOT NULL UNIQUE
+                           )
+                           ''')
+
+            # Словоформы лексемы
+            cursor.execute('''
+                           CREATE TABLE IF NOT EXISTS wordforms
+                           (
+                               id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                               lexeme_id INTEGER NOT NULL,
+                               word      TEXT    NOT NULL,
+                               pos_id    INTEGER,
+                               tags      TEXT,
+
+                               UNIQUE (lexeme_id, word),
+                               FOREIGN KEY (pos_id) REFERENCES pos_types (id),
+                               FOREIGN KEY (lexeme_id) REFERENCES lexemes (id) ON DELETE CASCADE
+                           )
+                           ''')
+
+            # Токены в предложениях
             cursor.execute('''
                            CREATE TABLE IF NOT EXISTS tokens
                            (
-                               id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                               word    TEXT,
-                               lemma   TEXT,
-                               pos     TEXT,
-                               tags    TEXT,
-                               context TEXT
+                               id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                               sentence_id INTEGER NOT NULL,
+                               wordform_id INTEGER NOT NULL,
+                               position    INTEGER,
+
+                               FOREIGN KEY (sentence_id) REFERENCES sentences (id) ON DELETE CASCADE,
+                               FOREIGN KEY (wordform_id) REFERENCES wordforms (id)
                            )
                            ''')
-            # Индексы для ускорения поиска
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_word ON tokens(word)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_lemma ON tokens(lemma)')
+
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_token_sentence  ON tokens(sentence_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_token_wordform  ON tokens(wordform_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_wordform_word   ON wordforms(word)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_wordform_lexeme ON wordforms(lexeme_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_lexeme_lemma    ON lexemes(lemma)')
+
             conn.commit()
 
-    def extract_text(self, file_path):
+    def extract_text(self, file_path=None):
         """Извлечение текста из файлов различных форматов"""
         ext = os.path.splitext(file_path)[1].lower()
         text = ""
@@ -60,7 +153,9 @@ class CorpusModel:
         elif ext == '.pdf':
             reader = PdfReader(file_path)
             for page in reader.pages:
-                text += page.extract_text() + "\n"
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
 
         elif ext == '.rtf':
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -73,73 +168,184 @@ class CorpusModel:
 
         return text
 
-    def add_to_corpus(self, text):
+    def _get_or_create_lexeme(self, cursor, lemma):
+        """Получить или создать лексему, вернуть её id"""
+        cursor.execute('SELECT id FROM lexemes WHERE lemma = ?', (lemma,))
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+
+        cursor.execute(
+            'INSERT INTO lexemes (lemma) VALUES (?)',
+            (lemma,))
+        return cursor.lastrowid
+
+    def _get_or_create_wordform(self, cursor, lexeme_id, word, pos_code, tags):
+        """Получить или создать словоформу, вернуть её id"""
+        cursor.execute(
+            'SELECT id FROM wordforms WHERE lexeme_id = ? AND word = ?',
+            (lexeme_id, word)
+        )
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+
+        cursor.execute('SELECT id FROM pos_types WHERE code = ?', (pos_code,))
+        pos_row = cursor.fetchone()
+        pos_id = pos_row[0] if pos_row else None
+
+        cursor.execute(
+            'INSERT INTO wordforms (lexeme_id, word, pos_id, tags) VALUES (?, ?, ?, ?)',
+            (lexeme_id, word, pos_id, tags)
+        )
+        return cursor.lastrowid
+
+    def add_to_corpus(self, text, source=None):
         """Лингвистическая разметка текста и сохранение в БД"""
         if not MORPH:
             return
 
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        to_insert = []
+        file_name = os.path.basename(source) if source else "unknown"
 
-        for sent in sentences:
-            sent = sent.strip()
-            if not sent: continue
-
-            words = re.findall(r'\b[а-яА-ЯёЁa-zA-Z-]+\b', sent)
-            for word in words:
-                p = MORPH.parse(word)[0]
-                to_insert.append((
-                    word,
-                    p.normal_form,
-                    str(p.tag.POS),
-                    str(p.tag),
-                    sent
-                ))
-
-        if to_insert:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.executemany(
-                    'INSERT INTO tokens (word, lemma, pos, tags, context) VALUES (?, ?, ?, ?, ?)',
-                    to_insert
-                )
-                conn.commit()
-
-    def search(self, query):
-        """Поиск в БД по слову или лемме"""
-        query = query.lower()
         with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
+            cursor.execute('PRAGMA foreign_keys = ON')
+
             cursor.execute(
-                'SELECT word, lemma, pos, context FROM tokens WHERE LOWER(word) = ? OR LOWER(lemma) = ?',
-                (query, query)
+                'INSERT INTO sources (file_path, file_name) VALUES (?, ?)',
+                (source, file_name)
             )
-            return [dict(row) for row in cursor.fetchall()]
+            source_id = cursor.lastrowid
+
+            sentences = re.split(r'(?<=[.!?])\s+', text)
+
+            for sent in sentences:
+                sent = sent.strip()
+                if not sent:
+                    continue
+
+                cursor.execute(
+                    'INSERT INTO sentences (source_id, text) VALUES (?, ?)',
+                    (source_id, sent)
+                )
+                sentence_id = cursor.lastrowid
+
+                words = re.findall(r'\b[а-яА-ЯёЁa-zA-Z\'-]+\b', sent)
+                for pos_in_sent, word in enumerate(words):
+                    p = MORPH.parse(word)[0]
+                    lemma = p.normal_form
+                    pos_code = str(p.tag.POS) if p.tag.POS else 'UNKN'
+                    tags = str(p.tag)
+
+                    lexeme_id = self._get_or_create_lexeme(cursor, lemma)
+                    wordform_id = self._get_or_create_wordform(cursor, lexeme_id, word, pos_code, tags)
+
+                    cursor.execute(
+                        'INSERT INTO tokens (sentence_id, wordform_id, position) VALUES (?, ?, ?)',
+                        (sentence_id, wordform_id, pos_in_sent)
+                    )
+
+            conn.commit()
 
     def delete_all(self):
         """Полная очистка БД"""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute('DELETE FROM tokens')
+            cursor = conn.cursor()
+            cursor.execute('PRAGMA foreign_keys = ON')
+            cursor.execute('DELETE FROM tokens')
+            cursor.execute('DELETE FROM wordforms')
+            cursor.execute('DELETE FROM lexemes')
+            cursor.execute('DELETE FROM sentences')
+            cursor.execute('DELETE FROM sources')
             conn.commit()
 
     def delete_by_word(self, word):
-        """Удаление по точному совпадению слова"""
+        """Удаление токенов по точному совпадению словоформы"""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute('DELETE FROM tokens WHERE LOWER(word) = ?', (word.lower(),))
+            cursor = conn.cursor()
+            cursor.execute('PRAGMA foreign_keys = ON')
+            cursor.execute('''
+                           DELETE
+                           FROM tokens
+                           WHERE wordform_id IN (SELECT id
+                                                 FROM wordforms
+                                                 WHERE LOWER(word) = ?)
+                           ''', (word.lower(),))
             conn.commit()
 
     def delete_by_lemma(self, lemma):
-        """Удаление по лемме"""
+        """Удаление токенов по лемме"""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute('DELETE FROM tokens WHERE LOWER(lemma) = ?', (lemma.lower(),))
+            cursor = conn.cursor()
+            cursor.execute('PRAGMA foreign_keys = ON')
+            cursor.execute('''
+                           DELETE
+                           FROM tokens
+                           WHERE wordform_id IN (SELECT wf.id
+                                                 FROM wordforms wf
+                                                          JOIN lexemes lx ON wf.lexeme_id = lx.id
+                                                 WHERE LOWER(lx.lemma) = ?)
+                           ''', (lemma.lower(),))
             conn.commit()
 
     def delete_by_pos(self, pos):
-        """Удаление по части речи"""
+        """Удаление токенов по части речи"""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute('DELETE FROM tokens WHERE pos = ?', (pos.upper(),))
+            cursor = conn.cursor()
+            cursor.execute('PRAGMA foreign_keys = ON')
+            cursor.execute('''
+                           DELETE
+                           FROM tokens
+                           WHERE wordform_id IN (SELECT wf.id
+                                                 FROM wordforms wf
+                                                          JOIN lexemes lx ON wf.lexeme_id = lx.id
+                                                          JOIN pos_types pt ON wf.pos_id = pt.id
+                                                 WHERE pt.code = ?)
+                           ''', (pos.upper(),))
             conn.commit()
+
+    def search(self, query=None, tag_filter=None):
+        """Поиск по словоформе, лемме или тегам"""
+
+        query = query.lower() if query else None
+        tag_filter = tag_filter.upper() if tag_filter else None
+
+        sql = '''
+              SELECT wf.word,
+                     lx.lemma,
+                     wf.tags                               AS tags,
+                     s.text                                AS context,
+                     src.file_name                         AS source,
+                     COUNT(t.id) OVER (PARTITION BY wf.id) AS word_freq,
+                     COUNT(t.id) OVER (PARTITION BY lx.id) AS lemma_freq
+              FROM tokens t
+                       JOIN wordforms wf ON t.wordform_id = wf.id
+                       JOIN lexemes lx ON wf.lexeme_id = lx.id
+                       LEFT JOIN pos_types pt ON wf.pos_id = pt.id
+                       JOIN sentences s ON t.sentence_id = s.id
+                       JOIN sources src ON s.source_id = src.id
+              '''
+
+        conditions = []
+        params = []
+
+        if query:
+            conditions.append("(LOWER(wf.word) = ? OR LOWER(lx.lemma) = ?)")
+            params.extend([query, query])
+
+        if tag_filter:
+            conditions.append("wf.tags LIKE ?")
+            params.append(f"%{tag_filter}%")
+
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(sql, params)
+
+            return [dict(row) for row in cursor.fetchall()]
 
     def get_stats(self):
         """Получение статистики из БД"""
@@ -152,14 +358,23 @@ class CorpusModel:
             if total == 0:
                 return None
 
-            cursor.execute('SELECT COUNT(DISTINCT lemma) FROM tokens')
+            cursor.execute('SELECT COUNT(*) FROM wordforms')
             unique = cursor.fetchone()[0]
 
-            cursor.execute('SELECT pos, COUNT(*) FROM tokens GROUP BY pos')
-            pos_counts = Counter(dict(cursor.fetchall()))
+            cursor.execute('''
+                           SELECT TRIM(tag_part.value) AS tag,
+                                  COUNT(*)             AS freq
+                           FROM tokens t
+                                    JOIN wordforms wf ON t.wordform_id = wf.id,
+                                json_each('["' || REPLACE(REPLACE(wf.tags, ',', '","'), ' ', '","') || '"]') AS tag_part
+                           WHERE TRIM(tag_part.value) != ''
+                           GROUP BY TRIM(tag_part.value)
+                           ORDER BY freq DESC
+                           ''')
+            tag_freq = cursor.fetchall()
 
             return {
                 'total': total,
                 'unique': unique,
-                'pos': pos_counts
+                'tag_freq': tag_freq,
             }

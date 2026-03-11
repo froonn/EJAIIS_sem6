@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtTest import QTest
 
+
 class CorpusController:
     def __init__(self, model, view):
         self.model = model
@@ -18,6 +19,7 @@ class CorpusController:
         self.view.btn_load.clicked.connect(self.handle_load)
         self.view.btn_search.clicked.connect(self.handle_search)
         self.view.search_input.returnPressed.connect(self.handle_search)
+        self.view.tag_input.returnPressed.connect(self.handle_search)
         self.view.btn_add_manual.clicked.connect(self.handle_manual_add)
         self.view.btn_delete_all.clicked.connect(self.handle_delete_all)
         self.view.btn_del_word.clicked.connect(lambda: self.handle_delete_by_filter("word"))
@@ -31,14 +33,14 @@ class CorpusController:
         if not files:
             return
 
-        QTest.qWait(100)  # Задержка 0.1 сек
+        QTest.qWait(100)
 
         full_preview = ""
         for f_path in files:
             try:
                 text = self.model.extract_text(f_path)
                 if text:
-                    self.model.add_to_corpus(text)
+                    self.model.add_to_corpus(text, f_path)
                     full_preview += f"--- {os.path.basename(f_path)} ---\n{text[:300]}...\n\n"
             except Exception as e:
                 QMessageBox.warning(self.view, "Ошибка", f"Файл {f_path} не обработан: {e}")
@@ -46,24 +48,6 @@ class CorpusController:
         self.view.text_preview.setText(full_preview)
         self.update_stats_view()
         QMessageBox.information(self.view, "Готово", "Данные сохранены в базу.")
-
-    def handle_search(self):
-        query = self.view.search_input.text().strip()
-        if not query:
-            return
-
-        results = self.model.search(query)
-        self.view.results_table.setRowCount(0)
-
-        for row, item in enumerate(results):
-            self.view.results_table.insertRow(row)
-            self.view.results_table.setItem(row, 0, QTableWidgetItem(item['word']))
-            self.view.results_table.setItem(row, 1, QTableWidgetItem(item['lemma']))
-            self.view.results_table.setItem(row, 2, QTableWidgetItem(item['pos']))
-
-            highlighted_widget = self.view.create_highlighted_context(item['context'], item['word'])
-            self.view.results_table.setCellWidget(row, 3, highlighted_widget)
-            self.view.results_table.setRowHeight(row, 65)
 
     def handle_manual_add(self):
         context = self.view.add_context_input.toPlainText().strip()
@@ -104,14 +88,46 @@ class CorpusController:
         QMessageBox.information(self.view, "Успех", "Операция удаления завершена.")
         self.view.del_input.clear()
 
+    def handle_search(self):
+        query = self.view.search_input.text().strip() or None
+        tag_filter = self.view.tag_input.text().strip() or None
+
+        if not query and not tag_filter:
+            return
+
+        results = self.model.search(query=query, tag_filter=tag_filter)
+        self.view.results_table.setRowCount(0)
+
+        for row, item in enumerate(results):
+            self.view.results_table.insertRow(row)
+            self.view.results_table.setItem(row, 0, QTableWidgetItem(item.get('word', '')))
+            self.view.results_table.setItem(row, 1, QTableWidgetItem(item.get('lemma', '')))
+            self.view.results_table.setItem(row, 2, QTableWidgetItem(item.get('tags', '')))
+            self.view.results_table.setItem(row, 3, QTableWidgetItem(str(item.get('word_freq', ''))))
+            self.view.results_table.setItem(row, 4, QTableWidgetItem(str(item.get('lemma_freq', ''))))
+
+            word_for_highlight = item.get('word', '') if query else ''
+            highlighted_widget = self.view.create_highlighted_context(
+                item.get('context', ''), word_for_highlight
+            )
+            self.view.results_table.setCellWidget(row, 5, highlighted_widget)
+            self.view.results_table.setItem(row, 6, QTableWidgetItem(item.get('source', '')))
+            self.view.results_table.setRowHeight(row, 65)
+
     def update_stats_view(self):
         stats = self.model.get_stats()
         if not stats:
-            self.view.stats_display.setText("База данных пуста.")
+            self.view.label_total.setText("Всего токенов: 0")
+            self.view.label_unique.setText("Уникальных словоформ: 0")
+            self.view.tag_freq_table.setRowCount(0)
             return
 
-        text = f"Общая статистика (БД):\nВсего токенов: {stats['total']}\nУникальных лемм: {stats['unique']}\n\n"
-        text += "Части речи:\n"
-        for pos, count in stats['pos'].most_common():
-            text += f"- {pos}: {count}\n"
-        self.view.stats_display.setText(text)
+        self.view.label_total.setText(f"Всего токенов: {stats['total']}")
+        self.view.label_unique.setText(f"Уникальных словоформ: {stats['unique']}")
+
+        tag_freq = stats.get('tag_freq', [])
+        self.view.tag_freq_table.setRowCount(0)
+        for row_idx, (tag, freq) in enumerate(tag_freq):
+            self.view.tag_freq_table.insertRow(row_idx)
+            self.view.tag_freq_table.setItem(row_idx, 0, QTableWidgetItem(tag))
+            self.view.tag_freq_table.setItem(row_idx, 1, QTableWidgetItem(str(freq)))
