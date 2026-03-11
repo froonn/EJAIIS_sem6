@@ -385,23 +385,22 @@ class CorpusModel:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT
-                    src.file_path  AS source_path,
-                    src.file_name  AS source_name,
-                    s.text         AS sentence,
-                    wf.word        AS word,
-                    lx.lemma       AS lemma,
-                    pt.code        AS pos,
-                    wf.tags        AS tags,
-                    t.position     AS position
-                FROM tokens t
-                    JOIN wordforms wf ON t.wordform_id = wf.id
-                    JOIN lexemes lx   ON wf.lexeme_id  = lx.id
-                    LEFT JOIN pos_types pt ON wf.pos_id = pt.id
-                    JOIN sentences s  ON t.sentence_id = s.id
-                    JOIN sources src  ON s.source_id   = src.id
-                ORDER BY src.id, s.id, t.position
-            ''')
+                           SELECT src.file_path AS source_path,
+                                  src.file_name AS source_name,
+                                  s.text        AS sentence,
+                                  wf.word       AS word,
+                                  lx.lemma      AS lemma,
+                                  pt.code       AS pos,
+                                  wf.tags       AS tags,
+                                  t.position    AS position
+                           FROM tokens t
+                                    JOIN wordforms wf ON t.wordform_id = wf.id
+                                    JOIN lexemes lx ON wf.lexeme_id = lx.id
+                                    LEFT JOIN pos_types pt ON wf.pos_id = pt.id
+                                    JOIN sentences s ON t.sentence_id = s.id
+                                    JOIN sources src ON s.source_id = src.id
+                           ORDER BY src.id, s.id, t.position
+                           ''')
             return [dict(row) for row in cursor.fetchall()]
 
     def import_json(self, records):
@@ -440,12 +439,12 @@ class CorpusModel:
                 sentence_id = cursor.lastrowid
 
                 for rec in sorted(tokens, key=lambda r: r.get('position', 0)):
-                    word   = rec.get('word', '')
-                    lemma  = rec.get('lemma', '')
-                    pos    = rec.get('pos', 'UNKN')
-                    tags   = rec.get('tags', '')
+                    word = rec.get('word', '')
+                    lemma = rec.get('lemma', '')
+                    pos = rec.get('pos', 'UNKN')
+                    tags = rec.get('tags', '')
 
-                    lexeme_id   = self._get_or_create_lexeme(cursor, lemma)
+                    lexeme_id = self._get_or_create_lexeme(cursor, lemma)
                     wordform_id = self._get_or_create_wordform(cursor, lexeme_id, word, pos, tags)
 
                     cursor.execute(

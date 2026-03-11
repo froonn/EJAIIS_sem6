@@ -12,6 +12,7 @@ from PyQt6.QtTest import QTest
 
 def _timed(operation_name):
     """Декоратор для замера времени выполнения операции"""
+
     def decorator(func):
         def wrapper(*args, **kwargs):
             start = time.perf_counter()
@@ -19,7 +20,9 @@ def _timed(operation_name):
             elapsed = time.perf_counter() - start
             print(f"[PERF] {operation_name}: {elapsed:.4f} с ({elapsed * 1000:.2f} мс)")
             return result
+
         return wrapper
+
     return decorator
 
 
@@ -58,20 +61,23 @@ class CorpusController:
                 t0 = time.perf_counter()
                 text = self.model.extract_text(f_path)
                 t1 = time.perf_counter()
-                print(f"[PERF] Извлечение текста из '{os.path.basename(f_path)}': {t1 - t0:.4f} с ({(t1 - t0) * 1000:.2f} мс)")
+                print(
+                    f"[PERF] Извлечение текста из '{os.path.basename(f_path)}': {t1 - t0:.4f} с ({(t1 - t0) * 1000:.2f} мс)")
 
                 if text:
                     t2 = time.perf_counter()
                     self.model.add_to_corpus(text, f_path)
                     t3 = time.perf_counter()
                     word_count = len(text.split())
-                    print(f"[PERF] Разметка и сохранение '{os.path.basename(f_path)}' (~{word_count} слов): {t3 - t2:.4f} с ({(t3 - t2) * 1000:.2f} мс)")
+                    print(
+                        f"[PERF] Разметка и сохранение '{os.path.basename(f_path)}' (~{word_count} слов): {t3 - t2:.4f} с ({(t3 - t2) * 1000:.2f} мс)")
 
             except Exception as e:
                 QMessageBox.warning(self.view, "Ошибка", f"Файл {f_path} не обработан: {e}")
 
         total_elapsed = time.perf_counter() - total_start
-        print(f"[PERF] Загрузка всего ({len(files)} файл(ов)) итого: {total_elapsed:.4f} с ({total_elapsed * 1000:.2f} мс)")
+        print(
+            f"[PERF] Загрузка всего ({len(files)} файл(ов)) итого: {total_elapsed:.4f} с ({total_elapsed * 1000:.2f} мс)")
 
         self.update_stats_view()
         QMessageBox.information(self.view, "Готово", "Данные сохранены в базу.")
@@ -120,7 +126,8 @@ class CorpusController:
             self.model.delete_by_pos(val)
         elapsed = time.perf_counter() - t0
         labels = {"word": "слову", "lemma": "лемме", "pos": "части речи"}
-        print(f"[PERF] Удаление по {labels.get(filter_type, filter_type)} '{val}': {elapsed:.4f} с ({elapsed * 1000:.2f} мс)")
+        print(
+            f"[PERF] Удаление по {labels.get(filter_type, filter_type)} '{val}': {elapsed:.4f} с ({elapsed * 1000:.2f} мс)")
 
         self.update_stats_view()
         self.view.results_table.setRowCount(0)
@@ -137,7 +144,8 @@ class CorpusController:
             t0 = time.perf_counter()
             data = self.model.export_json()
             t1 = time.perf_counter()
-            print(f"[PERF] Выборка данных для экспорта ({len(data)} записей): {t1 - t0:.4f} с ({(t1 - t0) * 1000:.2f} мс)")
+            print(
+                f"[PERF] Выборка данных для экспорта ({len(data)} записей): {t1 - t0:.4f} с ({(t1 - t0) * 1000:.2f} мс)")
 
             t2 = time.perf_counter()
             with open(path, 'w', encoding='utf-8') as f:
@@ -171,7 +179,8 @@ class CorpusController:
             t2 = time.perf_counter()
             self.model.import_json(data)
             t3 = time.perf_counter()
-            print(f"[PERF] Запись импортированных данных в БД ({len(data)} записей): {t3 - t2:.4f} с ({(t3 - t2) * 1000:.2f} мс)")
+            print(
+                f"[PERF] Запись импортированных данных в БД ({len(data)} записей): {t3 - t2:.4f} с ({(t3 - t2) * 1000:.2f} мс)")
             print(f"[PERF] Импорт JSON итого: {t3 - t0:.4f} с ({(t3 - t0) * 1000:.2f} мс)")
 
             self.update_stats_view()
@@ -191,7 +200,8 @@ class CorpusController:
         t0 = time.perf_counter()
         results = self.model.search(query=query, tag_filter=tag_filter)
         t1 = time.perf_counter()
-        print(f"[PERF] Поиск (запрос='{query}', тег='{tag_filter}') → {len(results)} результатов: {t1 - t0:.4f} с ({(t1 - t0) * 1000:.2f} мс)")
+        print(
+            f"[PERF] Поиск (запрос='{query}', тег='{tag_filter}') → {len(results)} результатов: {t1 - t0:.4f} с ({(t1 - t0) * 1000:.2f} мс)")
 
         self.view.results_table.setRowCount(0)
 
@@ -212,7 +222,8 @@ class CorpusController:
             self.view.results_table.setItem(row, 6, QTableWidgetItem(item.get('source', '')))
             self.view.results_table.setRowHeight(row, 65)
         t3 = time.perf_counter()
-        print(f"[PERF] Отрисовка таблицы результатов ({len(results)} строк): {t3 - t2:.4f} с ({(t3 - t2) * 1000:.2f} мс)")
+        print(
+            f"[PERF] Отрисовка таблицы результатов ({len(results)} строк): {t3 - t2:.4f} с ({(t3 - t2) * 1000:.2f} мс)")
         print(f"[PERF] Поиск итого: {t3 - t0:.4f} с ({(t3 - t0) * 1000:.2f} мс)")
 
     def update_stats_view(self):
