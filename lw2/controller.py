@@ -1,5 +1,6 @@
 # --- CONTROLLER ---
 
+import json
 import os
 
 from PyQt6.QtWidgets import (
@@ -25,6 +26,8 @@ class CorpusController:
         self.view.btn_del_word.clicked.connect(lambda: self.handle_delete_by_filter("word"))
         self.view.btn_del_lemma.clicked.connect(lambda: self.handle_delete_by_filter("lemma"))
         self.view.btn_del_pos.clicked.connect(lambda: self.handle_delete_by_filter("pos"))
+        self.view.btn_export_json.clicked.connect(self.handle_export_json)
+        self.view.btn_import_json.clicked.connect(self.handle_import_json)
 
     def handle_load(self):
         file_filter = "All Supported (*.txt *.pdf *.docx *.doc *.rtf);;Text (*.txt);;PDF (*.pdf);;Word (*.docx *.doc);;RTF (*.rtf)"
@@ -35,17 +38,14 @@ class CorpusController:
 
         QTest.qWait(100)
 
-        full_preview = ""
         for f_path in files:
             try:
                 text = self.model.extract_text(f_path)
                 if text:
                     self.model.add_to_corpus(text, f_path)
-                    full_preview += f"--- {os.path.basename(f_path)} ---\n{text[:300]}...\n\n"
             except Exception as e:
                 QMessageBox.warning(self.view, "Ошибка", f"Файл {f_path} не обработан: {e}")
 
-        self.view.text_preview.setText(full_preview)
         self.update_stats_view()
         QMessageBox.information(self.view, "Готово", "Данные сохранены в базу.")
 
@@ -87,6 +87,40 @@ class CorpusController:
         self.view.results_table.setRowCount(0)
         QMessageBox.information(self.view, "Успех", "Операция удаления завершена.")
         self.view.del_input.clear()
+
+    def handle_export_json(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self.view, "Экспорт в JSON", "corpus_export.json", "JSON (*.json)"
+        )
+        if not path:
+            return
+        try:
+            data = self.model.export_json()
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            QMessageBox.information(self.view, "Экспорт", f"Экспортировано {len(data)} записей в\n{path}")
+        except Exception as e:
+            QMessageBox.critical(self.view, "Ошибка экспорта", str(e))
+
+    def handle_import_json(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self.view, "Импорт из JSON", "", "JSON (*.json)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if not isinstance(data, list):
+                QMessageBox.warning(self.view, "Ошибка", "Файл должен содержать список записей (JSON array).")
+                return
+            self.model.import_json(data)
+            self.update_stats_view()
+            QMessageBox.information(self.view, "Импорт", f"Импортировано {len(data)} записей из\n{path}")
+        except json.JSONDecodeError as e:
+            QMessageBox.critical(self.view, "Ошибка JSON", str(e))
+        except Exception as e:
+            QMessageBox.critical(self.view, "Ошибка импорта", str(e))
 
     def handle_search(self):
         query = self.view.search_input.text().strip() or None
