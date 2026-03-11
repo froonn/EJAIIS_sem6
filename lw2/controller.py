@@ -2,11 +2,25 @@
 
 import json
 import os
+import time
 
 from PyQt6.QtWidgets import (
     QFileDialog, QTableWidgetItem, QMessageBox,
 )
 from PyQt6.QtTest import QTest
+
+
+def _timed(operation_name):
+    """Декоратор для замера времени выполнения операции"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            start = time.perf_counter()
+            result = func(*args, **kwargs)
+            elapsed = time.perf_counter() - start
+            print(f"[PERF] {operation_name}: {elapsed:.4f} с ({elapsed * 1000:.2f} мс)")
+            return result
+        return wrapper
+    return decorator
 
 
 class CorpusController:
@@ -38,13 +52,26 @@ class CorpusController:
 
         QTest.qWait(100)
 
+        total_start = time.perf_counter()
         for f_path in files:
             try:
+                t0 = time.perf_counter()
                 text = self.model.extract_text(f_path)
+                t1 = time.perf_counter()
+                print(f"[PERF] Извлечение текста из '{os.path.basename(f_path)}': {t1 - t0:.4f} с ({(t1 - t0) * 1000:.2f} мс)")
+
                 if text:
+                    t2 = time.perf_counter()
                     self.model.add_to_corpus(text, f_path)
+                    t3 = time.perf_counter()
+                    word_count = len(text.split())
+                    print(f"[PERF] Разметка и сохранение '{os.path.basename(f_path)}' (~{word_count} слов): {t3 - t2:.4f} с ({(t3 - t2) * 1000:.2f} мс)")
+
             except Exception as e:
                 QMessageBox.warning(self.view, "Ошибка", f"Файл {f_path} не обработан: {e}")
+
+        total_elapsed = time.perf_counter() - total_start
+        print(f"[PERF] Загрузка всего ({len(files)} файл(ов)) итого: {total_elapsed:.4f} с ({total_elapsed * 1000:.2f} мс)")
 
         self.update_stats_view()
         QMessageBox.information(self.view, "Готово", "Данные сохранены в базу.")
@@ -55,7 +82,12 @@ class CorpusController:
             QMessageBox.warning(self.view, "Внимание", "Введите текст предложения.")
             return
 
+        t0 = time.perf_counter()
         self.model.add_to_corpus(context)
+        elapsed = time.perf_counter() - t0
+        word_count = len(context.split())
+        print(f"[PERF] Добавление вручную (~{word_count} слов): {elapsed:.4f} с ({elapsed * 1000:.2f} мс)")
+
         self.update_stats_view()
         self.view.add_context_input.clear()
         QMessageBox.information(self.view, "Успех", "Запись добавлена в базу данных.")
@@ -64,10 +96,13 @@ class CorpusController:
         confirm = QMessageBox.question(self.view, "Подтверждение", "Удалить ВСЕ записи из базы данных?",
                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if confirm == QMessageBox.StandardButton.Yes:
+            t0 = time.perf_counter()
             self.model.delete_all()
+            elapsed = time.perf_counter() - t0
+            print(f"[PERF] Удаление всех записей: {elapsed:.4f} с ({elapsed * 1000:.2f} мс)")
+
             self.update_stats_view()
             self.view.results_table.setRowCount(0)
-            self.view.text_preview.clear()
             QMessageBox.information(self.view, "Удалено", "База данных полностью очищена.")
 
     def handle_delete_by_filter(self, filter_type):
@@ -76,12 +111,16 @@ class CorpusController:
             QMessageBox.warning(self.view, "Ошибка", "Введите значение для удаления.")
             return
 
+        t0 = time.perf_counter()
         if filter_type == "word":
             self.model.delete_by_word(val)
         elif filter_type == "lemma":
             self.model.delete_by_lemma(val)
         elif filter_type == "pos":
             self.model.delete_by_pos(val)
+        elapsed = time.perf_counter() - t0
+        labels = {"word": "слову", "lemma": "лемме", "pos": "части речи"}
+        print(f"[PERF] Удаление по {labels.get(filter_type, filter_type)} '{val}': {elapsed:.4f} с ({elapsed * 1000:.2f} мс)")
 
         self.update_stats_view()
         self.view.results_table.setRowCount(0)
@@ -95,9 +134,19 @@ class CorpusController:
         if not path:
             return
         try:
+            t0 = time.perf_counter()
             data = self.model.export_json()
+            t1 = time.perf_counter()
+            print(f"[PERF] Выборка данных для экспорта ({len(data)} записей): {t1 - t0:.4f} с ({(t1 - t0) * 1000:.2f} мс)")
+
+            t2 = time.perf_counter()
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+            t3 = time.perf_counter()
+            file_size_kb = os.path.getsize(path) / 1024
+            print(f"[PERF] Запись JSON на диск ({file_size_kb:.1f} КБ): {t3 - t2:.4f} с ({(t3 - t2) * 1000:.2f} мс)")
+            print(f"[PERF] Экспорт JSON итого: {t3 - t0:.4f} с ({(t3 - t0) * 1000:.2f} мс)")
+
             QMessageBox.information(self.view, "Экспорт", f"Экспортировано {len(data)} записей в\n{path}")
         except Exception as e:
             QMessageBox.critical(self.view, "Ошибка экспорта", str(e))
@@ -109,12 +158,22 @@ class CorpusController:
         if not path:
             return
         try:
+            t0 = time.perf_counter()
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+            t1 = time.perf_counter()
+            print(f"[PERF] Чтение и парсинг JSON ({len(data)} записей): {t1 - t0:.4f} с ({(t1 - t0) * 1000:.2f} мс)")
+
             if not isinstance(data, list):
                 QMessageBox.warning(self.view, "Ошибка", "Файл должен содержать список записей (JSON array).")
                 return
+
+            t2 = time.perf_counter()
             self.model.import_json(data)
+            t3 = time.perf_counter()
+            print(f"[PERF] Запись импортированных данных в БД ({len(data)} записей): {t3 - t2:.4f} с ({(t3 - t2) * 1000:.2f} мс)")
+            print(f"[PERF] Импорт JSON итого: {t3 - t0:.4f} с ({(t3 - t0) * 1000:.2f} мс)")
+
             self.update_stats_view()
             QMessageBox.information(self.view, "Импорт", f"Импортировано {len(data)} записей из\n{path}")
         except json.JSONDecodeError as e:
@@ -129,9 +188,14 @@ class CorpusController:
         if not query and not tag_filter:
             return
 
+        t0 = time.perf_counter()
         results = self.model.search(query=query, tag_filter=tag_filter)
+        t1 = time.perf_counter()
+        print(f"[PERF] Поиск (запрос='{query}', тег='{tag_filter}') → {len(results)} результатов: {t1 - t0:.4f} с ({(t1 - t0) * 1000:.2f} мс)")
+
         self.view.results_table.setRowCount(0)
 
+        t2 = time.perf_counter()
         for row, item in enumerate(results):
             self.view.results_table.insertRow(row)
             self.view.results_table.setItem(row, 0, QTableWidgetItem(item.get('word', '')))
@@ -147,9 +211,16 @@ class CorpusController:
             self.view.results_table.setCellWidget(row, 5, highlighted_widget)
             self.view.results_table.setItem(row, 6, QTableWidgetItem(item.get('source', '')))
             self.view.results_table.setRowHeight(row, 65)
+        t3 = time.perf_counter()
+        print(f"[PERF] Отрисовка таблицы результатов ({len(results)} строк): {t3 - t2:.4f} с ({(t3 - t2) * 1000:.2f} мс)")
+        print(f"[PERF] Поиск итого: {t3 - t0:.4f} с ({(t3 - t0) * 1000:.2f} мс)")
 
     def update_stats_view(self):
+        t0 = time.perf_counter()
         stats = self.model.get_stats()
+        t1 = time.perf_counter()
+        print(f"[PERF] Получение статистики из БД: {t1 - t0:.4f} с ({(t1 - t0) * 1000:.2f} мс)")
+
         if not stats:
             self.view.label_total.setText("Всего токенов: 0")
             self.view.label_unique.setText("Уникальных словоформ: 0")
@@ -161,7 +232,10 @@ class CorpusController:
 
         tag_freq = stats.get('tag_freq', [])
         self.view.tag_freq_table.setRowCount(0)
+        t2 = time.perf_counter()
         for row_idx, (tag, freq) in enumerate(tag_freq):
             self.view.tag_freq_table.insertRow(row_idx)
             self.view.tag_freq_table.setItem(row_idx, 0, QTableWidgetItem(tag))
             self.view.tag_freq_table.setItem(row_idx, 1, QTableWidgetItem(str(freq)))
+        t3 = time.perf_counter()
+        print(f"[PERF] Отрисовка таблицы тегов ({len(tag_freq)} строк): {t3 - t2:.4f} с ({(t3 - t2) * 1000:.2f} мс)")
